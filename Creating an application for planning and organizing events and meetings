@@ -23,3 +23,32 @@ def add_event():
 
 if __name__ == '__main__':
     app.run(debug=True)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Planner</title>
+</head>
+<body>
+    <h1>Event Planner</h1>
+
+    <form method="post" action="/add_event">
+        <label for="event_name">Event Name:</label>
+        <input type="text" id="event_name" name="event_name" required>
+
+        <label for="event_date">Event Date:</label>
+        <input type="date" id="event_date" name="event_date" required>
+
+        <button type="submit">Add Event</button>
+    </form>
+
+    <h2>Events:</h2>
+    <ul>
+        {% for event in events %}
+            <li>{{ event.name }} - {{ event.date }}</li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
+python app.py
