@@ -1,27 +1,89 @@
-pip install Flask
-from flask import Flask, render_template, request, redirect, url_for
+pip install Flask Flask-Login Flask-WTF
+from flask import Flask, render_template, request, redirect, url_for, flash
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, SubmitField
+from wtforms.validators import DataRequired
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your_secret_key_here'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///events.db'
 
-# Sample data to store events
-events = []
+db = SQLAlchemy(app)
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+# User model for authentication
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
+    password = db.Column(db.String(100), nullable=False)
+
+# Event model
+class Event(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Login form
+class LoginForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    submit = SubmitField('Login')
+
+# Event form
+class EventForm(FlaskForm):
+    name = StringField('Event Name', validators=[DataRequired()])
+    date = StringField('Date (YYYY-MM-DD)', validators=[DataRequired()])
+    submit = SubmitField('Add Event')
 
 @app.route('/')
 def index():
-    return render_template('index.html', events=events)
+    if current_user.is_authenticated:
+        events = Event.query.filter_by(user_id=current_user.id).all()
+        return render_template('index.html', events=events)
+    else:
+        return redirect(url_for('login'))
 
-@app.route('/add_event', methods=['POST'])
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    form = LoginForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(username=form.username.data).first()
+        if user and user.password == form.password.data:
+            login_user(user)
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid username or password', 'error')
+    return render_template('login.html', form=form)
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+@app.route('/add_event', methods=['GET', 'POST'])
+@login_required
 def add_event():
-    event_name = request.form.get('event_name')
-    event_date = request.form.get('event_date')
-
-    if event_name and event_date:
-        event = {'name': event_name, 'date': event_date}
-        events.append(event)
-
-    return redirect(url_for('index'))
+    form = EventForm()
+    if form.validate_on_submit():
+        event = Event(name=form.name.data, date=form.date.data, user_id=current_user.id)
+        db.session.add(event)
+        db.session.commit()
+        flash('Event added successfully', 'success')
+        return redirect(url_for('index'))
+    return render_template('add_event.html', form=form)
 
 if __name__ == '__main__':
+    db.create_all()
     app.run(debug=True)
 <!DOCTYPE html>
 <html lang="en">
@@ -29,26 +91,55 @@ if __name__ == '__main__':
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Event Planner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
 </head>
 <body>
-    <h1>Event Planner</h1>
-
-    <form method="post" action="/add_event">
-        <label for="event_name">Event Name:</label>
-        <input type="text" id="event_name" name="event_name" required>
-
-        <label for="event_date">Event Date:</label>
-        <input type="date" id="event_date" name="event_date" required>
-
-        <button type="submit">Add Event</button>
-    </form>
-
-    <h2>Events:</h2>
-    <ul>
-        {% for event in events %}
-            <li>{{ event.name }} - {{ event.date }}</li>
-        {% endfor %}
-    </ul>
+    <div class="container">
+        <h1 class="mt-5">Event Planner</h1>
+        <p>Welcome, {{ current_user.username }}! <a href="{{ url_for('logout') }}">Logout</a></p>
+        <hr>
+        <h2>Events:</h2>
+        <ul>
+            {% for event in events %}
+                <li>{{ event.name }} - {{ event.date }}</li>
+            {% endfor %}
+        </ul>
+        <hr>
+        <a href="{{ url_for('add_event') }}" class="btn btn-primary">Add Event</a>
+    </div>
 </body>
 </html>
-python app.py
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1 class="mt-5">Login</h1>
+        <form method="POST">
+            {{ form.hidden_tag() }}
+            <div class="form-group">
+                {{ form.username.label }}<br>
+                {{ form.username(class="form-control") }}<br>
+                {% for error in form.username.errors %}
+                    <span style="color: red;">{{ error }}</span><br>
+                {% endfor %}
+            </div>
+            <div class="form-group">
+                {{ form.password.label }}<br>
+                {{ form.password(class="form-control") }}<br>
+                {% for error in form.password.errors %}
+                    <span style="color: red;">{{ error }}</span><br>
+                {% endfor %}
+            </div>
+            <button type="submit" class="btn btn-primary">Login</button>
+        </form>
+        <hr>
+        <p>Don't have an account? <a href="#">Sign Up</a></p>
+    </div>
+</body>
+</html>
